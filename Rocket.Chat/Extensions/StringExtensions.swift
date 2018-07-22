@@ -8,27 +8,11 @@
 
 import Foundation
 
-func localized(_ string: String) -> String {
-    return NSLocalizedString(string, comment: "")
-}
-
 extension String {
     var isValidEmail: Bool {
         let emailFormat = "[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,64}"
         let emailPredicate = NSPredicate(format: "SELF MATCHES %@", emailFormat)
         return emailPredicate.evaluate(with: self)
-    }
-
-    static func random(_ length: Int = 20) -> String {
-        let base = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        var randomString: String = ""
-
-        for _ in 0..<length {
-            let randomValue = arc4random_uniform(UInt32(base.count))
-            randomString += "\(base[base.index(base.startIndex, offsetBy: Int(randomValue))])"
-        }
-
-        return randomString
     }
 
     func base64Encoded() -> String? {
@@ -80,14 +64,12 @@ extension String {
 
         if strCount < pCount { return [] }
 
-        for i in 0...(strCount-pCount) {
+        for idx in 0...(strCount-pCount) {
+            let from = index(self.startIndex, offsetBy: idx)
 
-            let from = index(self.startIndex, offsetBy: i)
-
-            if let to = index(from, offsetBy: pCount, limitedBy: self.endIndex) {
-
-                if string == self[from..<to] {
-                    ranges.append(from..<to)
+            if let toIdx = index(from, offsetBy: pCount, limitedBy: self.endIndex) {
+                if string == self[from..<toIdx] {
+                    ranges.append(from..<toIdx)
                 }
             }
         }
@@ -95,12 +77,36 @@ extension String {
         return ranges
     }
 
+    /**
+     This method prevents the app from keeping the URL that may
+     come with (or without) a slash in the end. All the URLs
+     coming/mapped from the API should not have a slash in the end.
+
+     - returns: the same string, but without the last char if it exists.
+     */
+    func removingLastSlashIfNeeded() -> String {
+        if last == "/" {
+            return String(self.dropLast())
+        }
+
+        return self
+    }
+
     func removingWhitespaces() -> String {
-        return components(separatedBy: .whitespaces).joined()
+        return components(separatedBy: .whitespacesAndNewlines).joined()
+    }
+
+    func removingNewLines() -> String {
+        return components(separatedBy: .newlines).joined()
     }
 
     var removingPercentEncoding: String? {
         return NSString(string: self).removingPercentEncoding
+    }
+
+    func replacingFirstOccurrence(of string: String, with replacement: String) -> String {
+        guard let range = self.range(of: string) else { return self }
+        return replacingCharacters(in: range, with: replacement)
     }
 
     func commandAndParams() -> (command: String, params: String)? {

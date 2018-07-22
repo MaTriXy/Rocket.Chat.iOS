@@ -12,7 +12,7 @@ import XCTest
 class ServerManagerSpec: XCTestCase {
 
     func testUpdateServerInformation() {
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.group
 
         // Setup server for testing
         let servers = [[
@@ -25,7 +25,7 @@ class ServerManagerSpec: XCTestCase {
         defaults.set(servers, forKey: ServerPersistKeys.servers)
         DatabaseManager.selectDatabase(at: 0)
 
-        // Create a new server settings
+        // Create a new workspace settings
         let settings = AuthSettings()
         settings.serverName = "serverName"
         settings.serverFaviconURL = "serverFaviconURL"
@@ -40,7 +40,7 @@ class ServerManagerSpec: XCTestCase {
     }
 
     func testUpdateServerInformationInvalidSettings() {
-        let defaults = UserDefaults.standard
+        let defaults = UserDefaults.group
 
         // Setup server for testing
         let servers = [[
@@ -53,7 +53,7 @@ class ServerManagerSpec: XCTestCase {
         defaults.set(servers, forKey: ServerPersistKeys.servers)
         DatabaseManager.selectDatabase(at: 0)
 
-        // Create a new server settings
+        // Create a new workspace settings
         let settings = AuthSettings()
 
         // Update it

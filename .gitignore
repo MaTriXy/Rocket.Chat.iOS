@@ -6,6 +6,7 @@
 
 ## Sensitive data
 Rocket.Chat/Keys.plist
+Rocket.Chat/GoogleService-Info.plist
 
 ## Build generated
 build/
@@ -21,6 +22,7 @@ DerivedData
 *.perspectivev3
 !default.perspectivev3
 xcuserdata
+xcshareddata
 
 ## Other
 *.xccheckout

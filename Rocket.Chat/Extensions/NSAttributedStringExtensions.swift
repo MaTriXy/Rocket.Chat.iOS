@@ -92,35 +92,50 @@ extension NSMutableAttributedString {
     }
 
     func transformMarkdown() -> NSAttributedString {
-        return MarkdownManager.parser.attributedStringFromAttributedMarkdownString(self)
+        return MarkdownManager.shared.transformAttributedString(self)
     }
 
-    func highlightMentions(_ mentions: [String], username: String?) {
+    func highlightMentions(_ mentions: [Mention], currentUsername: String?) {
         var handledHighlights: [String] = []
+        let shouldUseRealName = AuthSettingsManager.shared.settings?.useUserRealName ?? false
+
+        if shouldUseRealName {
+            mentions.forEach { mention in
+                let realName = mention.realName ?? ""
+                let username = mention.username ?? ""
+
+                if shouldUseRealName {
+                    mutableString.setString(string.replacingOccurrences(of: username, with: realName))
+                }
+            }
+        }
 
         mentions.forEach { mention in
-            if !handledHighlights.contains(mention) {
-                handledHighlights.append(mention)
+            let realName = mention.realName ?? ""
+            let username = mention.username ?? ""
+
+            if !handledHighlights.contains(username) {
+                handledHighlights.append(username)
 
                 let background: UIColor
                 let font: UIColor
-                if mention == username {
+                if username == currentUsername {
                     background = .primaryAction
                     font = .white
-                } else if mention == "all" || mention == "here" {
+                } else if username == "all" || username == "here" {
                     background = .attention
                     font = .white
                 } else {
-                    background = .white
+                    background = .clear
                     font = .link
                 }
 
-                let ranges = string.ranges(of: "@\(mention)")
+                let ranges = string.ranges(of: "@\(shouldUseRealName ? realName : username)")
                 for range in ranges {
                     let range = NSRange(range, in: string)
 
-                    if mention != "all" && mention != "here" && mention != username {
-                        setMention(mention, range: range)
+                    if username != "all" && username != "here" && username != currentUsername {
+                        setMention(username, range: range)
                     }
 
                     setBackgroundColor(background, range: range)

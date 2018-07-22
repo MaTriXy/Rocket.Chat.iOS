@@ -8,15 +8,17 @@
 
 import UIKit
 
-protocol ChatMessageCellProtocol: ChatMessageURLViewProtocol, ChatMessageVideoViewProtocol, ChatMessageImageViewProtocol, ChatMessageTextViewProtocol {
+// swiftlint:disable file_length
+protocol ChatMessageCellProtocol: ChatMessageURLViewProtocol, ChatMessageVideoViewProtocol, ChatMessageImageViewProtocol, ChatMessageTextViewProtocol, ChatMessageActionButtonsViewProtocol {
     func openURL(url: URL)
+
     func handleLongPressMessageCell(_ message: Message, view: UIView, recognizer: UIGestureRecognizer)
     func handleUsernameTapMessageCell(_ message: Message, view: UIView, recognizer: UIGestureRecognizer)
     func handleLongPress(reactionListView: ReactionListView, reactionView: ReactionView)
+    func handleReadReceiptPress(_ message: Message, source: (UIView, CGRect))
 }
 
 final class ChatMessageCell: UICollectionViewCell {
-
     static let minimumHeight = CGFloat(55)
     static let identifier = "ChatMessageCell"
 
@@ -31,15 +33,16 @@ final class ChatMessageCell: UICollectionViewCell {
 
     var message: Message! {
         didSet {
-            if oldValue != nil && oldValue.identifier == message?.identifier {
-                if oldValue.updatedAt?.timeIntervalSince1970 == message.updatedAt?.timeIntervalSince1970 {
-                    Log.debug("message is cached")
-                    return
-                }
+            if oldValue != nil && oldValue == message {
+                return
             }
 
             updateMessage()
         }
+    }
+
+    var settings: AuthSettings? {
+        return AuthManager.isAuthenticated()?.settings
     }
 
     @IBOutlet weak var avatarViewContainer: UIView! {
@@ -64,13 +67,20 @@ final class ChatMessageCell: UICollectionViewCell {
     @IBOutlet weak var labelUsername: UILabel!
     @IBOutlet weak var labelText: RCTextView!
 
+    @IBOutlet weak var statusView: UIImageView!
+
     @IBOutlet weak var mediaViews: UIStackView!
     @IBOutlet weak var mediaViewsHeightConstraint: NSLayoutConstraint!
 
     @IBOutlet weak var reactionsListView: ReactionListView! {
         didSet {
             reactionsListView.reactionTapRecognized = { view, sender in
-                MessageManager.react(self.message, emoji: view.model.emoji, completion: { _ in })
+                let client = API.current()?.client(MessagesClient.self)
+                client?.reactMessage(self.message, emoji: view.model.emoji)
+
+                if self.isAddingReaction(emoji: view.model.emoji) {
+                    UserReviewManager.shared.requestReview()
+                }
             }
 
             reactionsListView.reactionLongPressRecognized = { view, sender in
@@ -78,44 +88,20 @@ final class ChatMessageCell: UICollectionViewCell {
             }
         }
     }
-    @IBOutlet weak var reactionsListViewConstraint: NSLayoutConstraint!
 
-    static func cellMediaHeightFor(message: Message, width: CGFloat, sequential: Bool = true) -> CGFloat {
-        let fullWidth = width
-        let attributedString = MessageTextCacheManager.shared.message(for: message)
-
-        var total = (CGFloat)(sequential ? 8 : 29) + (message.reactions.count > 0 ? 40 : 0)
-        if attributedString?.string ?? "" != "" {
-            total += (attributedString?.heightForView(withWidth: fullWidth - 55) ?? 0)
+    private func isAddingReaction(emoji tappedEmoji: String) -> Bool {
+        guard let currentUser = AuthManager.currentUser()?.username else {
+            return false
         }
 
-        for url in message.urls {
-            guard url.isValid() else { continue }
-            total += ChatMessageURLView.defaultHeight
+        if Array(message.reactions).first(where: { $0.emoji == tappedEmoji && Array($0.usernames).contains(currentUser) }) != nil {
+            return false
         }
 
-        for attachment in message.attachments {
-            let type = attachment.type
-
-            if type == .textAttachment {
-                total += ChatMessageTextView.heightFor(collapsed: attachment.collapsed, withText: attachment.text)
-            }
-
-            if type == .image {
-                total += ChatMessageImageView.heightFor(withText: attachment.descriptionText)
-            }
-
-            if type == .video {
-                total += ChatMessageVideoView.heightFor(withText: attachment.descriptionText)
-            }
-
-            if type == .audio {
-                total += ChatMessageAudioView.heightFor(withText: attachment.descriptionText)
-            }
-        }
-
-        return total
+        return true
     }
+
+    @IBOutlet weak var reactionsListViewConstraint: NSLayoutConstraint!
 
     // MARK: Sequential
     @IBOutlet weak var labelUsernameHeightConstraint: NSLayoutConstraint!
@@ -130,16 +116,50 @@ final class ChatMessageCell: UICollectionViewCell {
         }
     }
 
+    // MARK: Read Receipt
+
+    @IBOutlet weak var readReceiptButton: UIButton!
+    @IBOutlet weak var readReceiptConstraint: NSLayoutConstraint!
+
+    func updateReadReceipt() {
+        guard let settings = settings else {
+            return
+        }
+
+        if settings.messageReadReceiptEnabled {
+            readReceiptConstraint.constant = 12.0
+        } else {
+            readReceiptConstraint.constant = 0.0
+        }
+
+        let image = UIImage(named: "Check")?.imageWithTint(message.unread ? #colorLiteral(red: 0.6, green: 0.6, blue: 0.6, alpha: 1) : #colorLiteral(red: 0.1137254902, green: 0.4549019608, blue: 0.9607843137, alpha: 1), alpha: 0.0)
+        readReceiptButton.setImage(image, for: .normal)
+    }
+
+    @IBAction func readReceiptPressed(_ sender: UIButton) {
+        guard
+            let settings = settings,
+            settings.messageReadReceiptStoreUsers
+        else {
+            return
+        }
+
+        delegate?.handleReadReceiptPress(message, source: (readReceiptButton, readReceiptButton.frame))
+    }
+
     override func prepareForReuse() {
+        super.prepareForReuse()
         labelUsername.text = ""
         labelText.message = nil
         labelDate.text = ""
+
         sequential = false
         message = nil
 
         avatarView.prepareForReuse()
 
         for view in mediaViews.arrangedSubviews {
+            mediaViews.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
     }
@@ -171,6 +191,22 @@ final class ChatMessageCell: UICollectionViewCell {
         }
     }
 
+    func insertButtonActions() -> CGFloat {
+        var addedHeight = CGFloat(0)
+
+        if message.isBroadcastReplyAvailable() {
+            if let view = ChatMessageActionButtonsView.instantiateFromNib() {
+                view.message = message
+                view.delegate = delegate
+
+                mediaViews.addArrangedSubview(view)
+                addedHeight += ChatMessageActionButtonsView.defaultHeight
+            }
+        }
+
+        return addedHeight
+    }
+
     func insertURLs() -> CGFloat {
         var addedHeight = CGFloat(0)
         message.urls.forEach { url in
@@ -188,57 +224,21 @@ final class ChatMessageCell: UICollectionViewCell {
 
     func insertAttachments() {
         var mediaViewHeight = CGFloat(0)
-
         mediaViewHeight += insertURLs()
 
         message.attachments.forEach { attachment in
             let type = attachment.type
 
             switch type {
-            case .textAttachment:
-                if let view = ChatMessageTextView.instantiateFromNib() {
-                    view.viewModel = ChatMessageTextViewModel(withAttachment: attachment)
-                    view.delegate = delegate
-                    view.translatesAutoresizingMaskIntoConstraints = false
-
-                    mediaViews.addArrangedSubview(view)
-                    mediaViewHeight += ChatMessageTextView.heightFor(collapsed: attachment.collapsed, withText: attachment.text)
-                }
-
-            case .image:
-                if let view = ChatMessageImageView.instantiateFromNib() {
-                    view.attachment = attachment
-                    view.delegate = delegate
-                    view.translatesAutoresizingMaskIntoConstraints = false
-
-                    mediaViews.addArrangedSubview(view)
-                    mediaViewHeight += ChatMessageImageView.heightFor(withText: attachment.descriptionText)
-                }
-
-            case .video:
-                if let view = ChatMessageVideoView.instantiateFromNib() {
-                    view.attachment = attachment
-                    view.delegate = delegate
-                    view.translatesAutoresizingMaskIntoConstraints = false
-
-                    mediaViews.addArrangedSubview(view)
-                    mediaViewHeight += ChatMessageVideoView.heightFor(withText: attachment.descriptionText)
-                }
-
-            case .audio:
-                if let view = ChatMessageAudioView.instantiateFromNib() {
-                    view.attachment = attachment
-                    view.translatesAutoresizingMaskIntoConstraints = false
-
-                    mediaViews.addArrangedSubview(view)
-                    mediaViewHeight += ChatMessageAudioView.heightFor(withText: attachment.descriptionText)
-                }
-
-            default:
-                return
+            case .textAttachment: mediaViewHeight += insertTextAttachment(attachment)
+            case .image: mediaViewHeight += insertImageAttachment(attachment)
+            case .video: mediaViewHeight += insertVideoAttachment(attachment)
+            case .audio: mediaViewHeight += insertAudioAttachment(attachment)
+            default: return
             }
         }
 
+        mediaViewHeight += insertButtonActions()
         mediaViewsHeightConstraint.constant = CGFloat(mediaViewHeight)
     }
 
@@ -247,30 +247,126 @@ final class ChatMessageCell: UICollectionViewCell {
             labelDate.text = RCDateFormatter.time(createdAt)
         }
 
-        avatarView.user = message.user
         avatarView.emoji = message.emoji
+        avatarView.user = message.user
 
         if let avatar = message.avatar {
             avatarView.avatarURL = URL(string: avatar)
         }
 
+        labelUsername.text = message.user?.displayName() ?? "Unknown"
+
         if message.alias.count > 0 {
             labelUsername.text = message.alias
-        } else {
-            labelUsername.text = message.user?.displayName() ?? "Unknown"
         }
     }
 
-    fileprivate func updateMessageContent() {
-        if let text = MessageTextCacheManager.shared.message(for: message) {
+    fileprivate func updateMessageContent(force: Bool = false) {
+        if let text = force ? MessageTextCacheManager.shared.update(for: message, with: theme) : MessageTextCacheManager.shared.message(for: message, with: theme) {
             if message.temporary {
-                text.setFontColor(MessageTextFontAttributes.systemFontColor)
+                text.setFontColor(MessageTextFontAttributes.systemFontColor(for: theme))
+            } else if message.failed {
+                text.setFontColor(MessageTextFontAttributes.failedFontColor(for: theme))
             }
 
             labelText.message = text
         }
     }
 
+    fileprivate func updateMessage() {
+        guard let message = message else { return }
+
+        if message.failed {
+            statusView.isHidden = false
+            statusView.image = UIImage(named: "Exclamation")?.withRenderingMode(.alwaysTemplate)
+            statusView.tintColor = .red
+        } else {
+            statusView.isHidden = true
+        }
+
+        if !sequential {
+            updateMessageHeader()
+        }
+
+        updateMessageContent()
+        insertGesturesIfNeeded()
+        insertAttachments()
+        updateReactions()
+        updateReadReceipt()
+    }
+
+    @objc func handleLongPressMessageCell(recognizer: UIGestureRecognizer) {
+        delegate?.handleLongPressMessageCell(message, view: contentView, recognizer: recognizer)
+    }
+
+    @objc func handleUsernameTapGestureCell(recognizer: UIGestureRecognizer) {
+        delegate?.handleUsernameTapMessageCell(message, view: labelUsername, recognizer: recognizer)
+    }
+}
+
+extension ChatMessageCell: UIGestureRecognizerDelegate {
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        return false
+    }
+
+}
+
+// MARK: Height calculation
+
+extension ChatMessageCell {
+
+    static func cellMediaHeightFor(message: Message, width: CGFloat, sequential: Bool = true) -> CGFloat {
+        let fullWidth = width
+        let attributedString = MessageTextCacheManager.shared.message(for: message, with: nil)
+
+        var total = (CGFloat)(sequential ? 8 : 29) + (message.reactions.count > 0 ? 40 : 0)
+        if attributedString?.string ?? "" != "" {
+            total += (attributedString?.heightForView(withWidth: fullWidth - 61) ?? 0)
+        }
+
+        if message.isBroadcastReplyAvailable() {
+            total += ChatMessageActionButtonsView.defaultHeight
+        }
+
+        for url in message.urls {
+            guard url.isValid() else { continue }
+            total += ChatMessageURLView.defaultHeight
+        }
+
+        for attachment in message.attachments {
+            let type = attachment.type
+
+            if type == .textAttachment {
+                total += ChatMessageTextView.heightFor(collapsed: attachment.collapsed, withText: attachment.text, isFile: attachment.isFile)
+            }
+
+            if type == .image {
+                total += ChatMessageImageView.heightFor(withText: attachment.descriptionText)
+            }
+
+            if type == .video {
+                total += ChatMessageVideoView.heightFor(withText: attachment.descriptionText)
+            }
+
+            if type == .audio {
+                total += ChatMessageAudioView.heightFor(withText: attachment.descriptionText)
+            }
+
+            if !attachment.collapsed {
+                attachment.fields.forEach {
+                    total += ChatMessageTextView.heightFor(collapsed: false, withText: $0.value)
+                }
+            }
+        }
+
+        return total
+    }
+}
+
+// MARK: Reactions
+
+extension ChatMessageCell {
     fileprivate func updateReactions() {
         let username = AuthManager.currentUser()?.username
 
@@ -304,69 +400,70 @@ final class ChatMessageCell: UICollectionViewCell {
             reactionsListViewConstraint.constant = 0
         }
     }
-
-    fileprivate func updateMessage() {
-        guard
-            delegate != nil,
-            message != nil
-        else {
-            return
-        }
-
-        if !sequential {
-            updateMessageHeader()
-        }
-
-        updateMessageContent()
-        insertGesturesIfNeeded()
-        insertAttachments()
-        updateReactions()
-    }
-
-    @objc func handleLongPressMessageCell(recognizer: UIGestureRecognizer) {
-        delegate?.handleLongPressMessageCell(message, view: contentView, recognizer: recognizer)
-    }
-
-    @objc func handleUsernameTapGestureCell(recognizer: UIGestureRecognizer) {
-        delegate?.handleUsernameTapMessageCell(message, view: contentView, recognizer: recognizer)
-    }
-
 }
 
-extension ChatMessageCell: UIGestureRecognizerDelegate {
-
-    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRequireFailureOf otherGestureRecognizer: UIGestureRecognizer) -> Bool {
-        return false
-    }
-
-}
-
-// MARK: Accessibility
+// MARK: Insert attachments
 
 extension ChatMessageCell {
+    private func insertTextAttachment(_ attachment: Attachment) -> CGFloat {
+        guard let view = ChatMessageTextView.instantiateFromNib() else { return 0 }
+        view.viewModel = ChatMessageTextViewModel(withAttachment: attachment)
+        view.delegate = delegate
+        view.translatesAutoresizingMaskIntoConstraints = false
 
-    override func awakeFromNib() {
-        isAccessibilityElement = true
+        mediaViews.addArrangedSubview(view)
+        var attachmentHeight = ChatMessageTextView.heightFor(collapsed: attachment.collapsed, withText: attachment.text, isFile: attachment.isFile)
+
+        if !attachment.collapsed {
+            attachment.fields.forEach {
+                guard let view = ChatMessageTextView.instantiateFromNib() else { return }
+                view.viewModel = ChatMessageAttachmentFieldViewModel(withAttachment: attachment, andAttachmentField: $0)
+                mediaViews.addArrangedSubview(view)
+                attachmentHeight += ChatMessageTextView.heightFor(collapsed: false, withText: $0.value)
+            }
+        }
+
+        return attachmentHeight
     }
 
-    override var accessibilityIdentifier: String? {
-        get { return "message" }
-        set { }
+    private func insertImageAttachment(_ attachment: Attachment) -> CGFloat {
+        guard let view = ChatMessageImageView.instantiateFromNib() else { return 0 }
+        view.attachment = attachment
+        view.delegate = delegate
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        mediaViews.addArrangedSubview(view)
+        return ChatMessageImageView.heightFor(withText: attachment.descriptionText)
     }
 
-    override var accessibilityLabel: String? {
-        get { return message?.accessibilityLabel }
-        set { }
+    private func insertVideoAttachment(_ attachment: Attachment) -> CGFloat {
+        guard let view = ChatMessageVideoView.instantiateFromNib() else { return 0 }
+        view.attachment = attachment
+        view.delegate = delegate
+        view.translatesAutoresizingMaskIntoConstraints = false
+
+        mediaViews.addArrangedSubview(view)
+        return ChatMessageVideoView.heightFor(withText: attachment.descriptionText)
     }
 
-    override var accessibilityValue: String? {
-        get { return message?.accessibilityValue }
-        set { }
-    }
+    private func insertAudioAttachment(_ attachment: Attachment) -> CGFloat {
+        guard let view = ChatMessageAudioView.instantiateFromNib() else { return 0 }
+        view.attachment = attachment
+        view.translatesAutoresizingMaskIntoConstraints = false
 
-    override var accessibilityHint: String? {
-        get { return message?.accessibilityHint }
-        set { }
+        mediaViews.addArrangedSubview(view)
+        return ChatMessageAudioView.heightFor(withText: attachment.descriptionText)
     }
+}
 
+// MARK: Themeable
+
+extension ChatMessageCell {
+    override func applyTheme() {
+        super.applyTheme()
+        guard let theme = theme else { return }
+        labelDate.textColor = theme.auxiliaryText
+        labelUsername.textColor = theme.titleText
+        updateMessageContent(force: true)
+    }
 }

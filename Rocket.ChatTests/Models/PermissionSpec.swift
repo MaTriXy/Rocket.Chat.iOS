@@ -16,9 +16,9 @@ class PermissionSpec: XCTestCase {
     let testJSON = JSON([
         "_id": "snippet-message",
         "roles": [
-        "owner",
-        "moderator",
-        "admin"
+            "owner",
+            "moderator",
+            "admin"
         ],
         "_updatedAt": [ "$date": 1480377601 ],
         "meta": [
@@ -31,7 +31,7 @@ class PermissionSpec: XCTestCase {
     ])
 
     func testMap() {
-        let permission = Permission()
+        let permission = Rocket_Chat.Permission()
         permission.map(testJSON, realm: nil)
 
         XCTAssertTrue(permission.roles.contains("owner"), "has owner role")

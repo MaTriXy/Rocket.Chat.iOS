@@ -9,6 +9,8 @@
 import Foundation
 import RealmSwift
 
+public typealias MessagesHistoryCompletion = (Date?) -> Void
+
 struct MessageManager {
     static let historySize = 60
 }
@@ -17,9 +19,9 @@ let kBlockedUsersIndentifiers = "kBlockedUsersIndentifiers"
 
 extension MessageManager {
 
-    static var blockedUsersList = UserDefaults.standard.value(forKey: kBlockedUsersIndentifiers) as? [String] ?? []
+    static var blockedUsersList = UserDefaults.group.value(forKey: kBlockedUsersIndentifiers) as? [String] ?? []
 
-    static func getHistory(_ subscription: Subscription, lastMessageDate: Date?, completion: @escaping MessageCompletionObjectsList<Message>) {
+    static func getHistory(_ subscription: Subscription, lastMessageDate: Date?, completion: @escaping MessagesHistoryCompletion) {
         var lastDate: Any!
 
         if let lastMessageDate = lastMessageDate {
@@ -31,13 +33,12 @@ extension MessageManager {
         let request = [
             "msg": "method",
             "method": "loadHistory",
-            "params": ["\(subscription.rid)", lastDate, historySize, [
-                "$date": Date().timeIntervalSince1970 * 1000
-            ]]
+            "params": ["\(subscription.rid)", lastDate, historySize]
         ] as [String: Any]
 
-        let validMessages = List<Message>()
+        var lastMessageDate: Date?
 
+        let currentRealm = Realm.current
         SocketManager.send(request) { response in
             guard !response.isError() else {
                 return Log.debug(response.result.string)
@@ -46,7 +47,7 @@ extension MessageManager {
             let list = response.result["result"]["messages"].array
             let subscriptionIdentifier = subscription.identifier
 
-            Realm.execute({ (realm) in
+            currentRealm?.execute({ (realm) in
                 guard let detachedSubscription = realm.object(ofType: Subscription.self, forPrimaryKey: subscriptionIdentifier ?? "") else { return }
 
                 list?.forEach { object in
@@ -64,13 +65,10 @@ extension MessageManager {
                     })
 
                     realm.add(message, update: true)
-
-                    if !message.userBlocked {
-                        validMessages.append(message)
-                    }
+                    lastMessageDate = message.createdAt
                 }
             }, completion: {
-                completion(Array(validMessages))
+                completion(lastMessageDate)
             })
         }
     }
@@ -84,16 +82,18 @@ extension MessageManager {
             "params": [eventName, false]
         ] as [String: Any]
 
+        let currentRealm = Realm.current
+        let subscriptionIdentifier = subscription.rid
+
         SocketManager.subscribe(request, eventName: eventName) { response in
             guard !response.isError() else {
                 return Log.debug(response.result.string)
             }
 
             let object = response.result["fields"]["args"][0]
-            let subscriptionIdentifier = subscription.identifier
 
-            Realm.execute({ (realm) in
-                guard let detachedSubscription = realm.object(ofType: Subscription.self, forPrimaryKey: subscriptionIdentifier ?? "") else { return }
+            currentRealm?.execute({ (realm) in
+                guard let detachedSubscription = Subscription.find(rid: subscriptionIdentifier, realm: realm) else { return }
                 let message = Message.getOrCreate(realm: realm, values: object, updates: { (object) in
                     object?.subscription = detachedSubscription
                 })
@@ -111,13 +111,14 @@ extension MessageManager {
             "name": "stream-notify-room",
             "id": eventName,
             "params": [eventName, false]
-            ] as [String: Any]
+        ] as [String: Any]
 
+        let currentRealm = Realm.current
         SocketManager.subscribe(request, eventName: eventName) { response in
             guard !response.isError() else { return Log.debug(response.result.string) }
 
             if let msgId = response.result["fields"]["args"][0]["_id"].string {
-                Realm.executeOnMainThread({ realm in
+                currentRealm?.execute({ realm in
                     guard let message = realm.object(ofType: Message.self, forPrimaryKey: msgId) else { return }
                     realm.delete(message)
                     completion(msgId)
@@ -141,30 +142,6 @@ extension MessageManager {
         }
     }
 
-    static func pin(_ message: Message, completion: @escaping MessageCompletion) {
-        guard let messageIdentifier = message.identifier else { return }
-
-        let request = [
-            "msg": "method",
-            "method": "pinMessage",
-            "params": [ ["rid": message.rid, "_id": messageIdentifier ] ]
-        ] as [String: Any]
-
-        SocketManager.send(request, completion: completion)
-    }
-
-    static func unpin(_ message: Message, completion: @escaping MessageCompletion) {
-        guard let messageIdentifier = message.identifier else { return }
-
-        let request = [
-            "msg": "method",
-            "method": "unpinMessage",
-            "params": [ ["rid": message.rid, "_id": messageIdentifier ] ]
-        ] as [String: Any]
-
-        SocketManager.send(request, completion: completion)
-    }
-
     static func react(_ message: Message, emoji: String, completion: @escaping MessageCompletion) {
         guard let messageIdentifier = message.identifier else { return }
 
@@ -180,9 +157,9 @@ extension MessageManager {
     static func blockMessagesFrom(_ user: User, completion: @escaping VoidCompletion) {
         guard let userIdentifier = user.identifier else { return }
 
-        var blockedUsers: [String] = UserDefaults.standard.value(forKey: kBlockedUsersIndentifiers) as? [String] ?? []
+        var blockedUsers: [String] = UserDefaults.group.value(forKey: kBlockedUsersIndentifiers) as? [String] ?? []
         blockedUsers.append(userIdentifier)
-        UserDefaults.standard.setValue(blockedUsers, forKey: kBlockedUsersIndentifiers)
+        UserDefaults.group.setValue(blockedUsers, forKey: kBlockedUsersIndentifiers)
         self.blockedUsersList = blockedUsers
 
         Realm.execute({ (realm) in
@@ -193,11 +170,7 @@ extension MessageManager {
             }
 
             realm.add(messages, update: true)
-
-            DispatchQueue.main.async {
-                completion()
-            }
-        })
+        }, completion: completion)
     }
 
 }

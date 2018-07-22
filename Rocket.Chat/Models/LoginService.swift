@@ -10,9 +10,12 @@ import Foundation
 import RealmSwift
 
 enum LoginServiceType {
+    case google
     case github
     case facebook
     case linkedin
+    case gitlab
+    case wordpress
     case saml
     case cas
     case custom
@@ -20,12 +23,27 @@ enum LoginServiceType {
 
     init(string: String) {
         switch string {
-        case "github": self = .github
+        case "google": self = .google
         case "facebook": self = .facebook
+        case "github": self = .github
+        case "gitlab": self = .gitlab
         case "linkedin": self = .linkedin
+        case "wordpress": self = .wordpress
         case "saml": self = .saml
         case "cas": self = .cas
         default: self = .invalid
+        }
+    }
+
+    var icon: UIImage? {
+        switch self {
+        case .google: return #imageLiteral(resourceName: "google")
+        case .facebook: return #imageLiteral(resourceName: "facebook")
+        case .github: return #imageLiteral(resourceName: "github")
+        case .gitlab: return #imageLiteral(resourceName: "gitlab")
+        case .linkedin: return #imageLiteral(resourceName: "linkedin")
+        case .wordpress: return #imageLiteral(resourceName: "wordpress")
+        default: return nil
         }
     }
 }
@@ -36,7 +54,6 @@ class LoginService: BaseModel {
     @objc dynamic var custom = false
     @objc dynamic var serverUrl: String?
     @objc dynamic var tokenPath: String?
-    @objc dynamic var identityPath: String?
     @objc dynamic var authorizePath: String?
     @objc dynamic var scope: String?
     @objc dynamic var buttonLabelText: String?
@@ -51,9 +68,19 @@ class LoginService: BaseModel {
 
     @objc dynamic var loginUrl: String?
 
+    // SAML
+
+    @objc dynamic var entryPoint: String?
+    @objc dynamic var issuer: String?
+    @objc dynamic var provider: String?
+
     // true if LoginService has enough information to be used
     var isValid: Bool {
         if type == .cas && loginUrl != nil {
+            return true
+        }
+
+        if type == .saml {
             return true
         }
 
@@ -72,7 +99,6 @@ class LoginService: BaseModel {
         return .invalid
     }
 
-    @objc dynamic var responseType: String?
     @objc dynamic var callbackPath: String?
 }
 
@@ -87,15 +113,15 @@ extension LoginService {
             return nil
         }
 
-        return "\(serverUrl)\(authorizePath)"
+        return authorizePath.contains("://") ? authorizePath : "\(serverUrl)\(authorizePath)"
     }
 
     var accessTokenUrl: String? {
         guard
             let serverUrl = serverUrl,
             let tokenPath = tokenPath
-            else {
-                return nil
+        else {
+            return nil
         }
 
         return tokenPath.contains("://") ? tokenPath : "\(serverUrl)\(tokenPath)"
@@ -113,33 +139,5 @@ extension LoginService {
         }
 
         return object
-    }
-}
-
-// MARK: Standard Login Services extensions
-
-extension LoginService {
-    static var facebook: LoginService {
-        let service = LoginService()
-        service.mapFacebook()
-        return service
-    }
-
-    static var github: LoginService {
-        let service = LoginService()
-        service.mapGitHub()
-        return service
-    }
-
-    static var linkedin: LoginService {
-        let service = LoginService()
-        service.mapLinkedIn()
-        return service
-    }
-
-    static var cas: LoginService {
-        let service = LoginService()
-        service.mapCAS()
-        return service
     }
 }

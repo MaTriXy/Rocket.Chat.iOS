@@ -9,13 +9,13 @@
 import UIKit
 
 protocol ChatMessageTextViewProtocol: class {
-    func viewDidCollpaseChange(view: UIView)
+    func viewDidCollapseChange(view: UIView)
     func openFileFromCell(attachment: Attachment)
 }
 
 final class ChatMessageTextView: UIView {
 
-    static let defaultHeight = CGFloat(50)
+    static let defaultHeight = CGFloat(52)
     static let defaultTitleHeight = CGFloat(17)
 
     @IBOutlet weak var imageViewThumbWidthConstraint: NSLayoutConstraint!
@@ -32,7 +32,7 @@ final class ChatMessageTextView: UIView {
 
     weak var delegate: ChatMessageTextViewProtocol?
 
-    var viewModel: ChatMessageTextViewModel? {
+    var viewModel: ChatMessageTextViewModelProtocol? {
         didSet {
             prepareView()
         }
@@ -44,18 +44,14 @@ final class ChatMessageTextView: UIView {
         return UITapGestureRecognizer(target: self, action: #selector(viewDidTapped(_:)))
     }()
 
-    private func prepareView() {
+    func prepareView() {
         addGestureIfNeeded()
-        updateLeftBorder()
         updateLabels()
         updateImageView()
+        applyTheme()
     }
 
     // MARK: Layout
-
-    private func updateLeftBorder() {
-        viewLeftBorder.backgroundColor = viewModel?.color
-    }
 
     private func updateLabels() {
         labelTitle.text = viewModel?.title
@@ -75,32 +71,41 @@ final class ChatMessageTextView: UIView {
         }
 
         if let thumbURL = viewModel?.thumbURL {
-            imageViewThumb.sd_setImage(with: thumbURL, completed: { _, error, _, _ in
+            ImageManager.loadImage(with: thumbURL, into: imageViewThumb) { _, error in
                 let width = error != nil ? 0 : ChatMessageTextView.imageViewDefaultWidth
                 updateConstraint(width)
-            })
+            }
         } else {
             updateConstraint(0)
         }
     }
 
-    static func heightFor(collapsed: Bool, withText text: String?) -> CGFloat {
-        guard let text = text, text != "", collapsed else {
-            return self.defaultHeight
+    static func heightFor(collapsed: Bool, withText text: String?, isFile: Bool = false) -> CGFloat {
+        guard !isFile else {
+            return defaultHeight
         }
 
-        let attributedString = NSMutableAttributedString(string: text).transformMarkdown()
+        let width = UIScreen.main.bounds.size.width - 73
+        var textHeight: CGFloat = 1
 
-        let fullWidth = UIScreen.main.bounds.size.width
-        let height = attributedString.heightForView(withWidth: fullWidth - 80)
-        return max(self.defaultHeight, height ?? 0) + 10
+        if let text = text, text.count > 0 {
+            let attributedString = NSMutableAttributedString(string: text)
+            attributedString.setFont(.systemFont(ofSize: 13.0))
+            textHeight += (attributedString.transformMarkdown().heightForView(withWidth: width) ?? 0)
+        }
+
+        let totalHeight = defaultTitleHeight + textHeight
+
+        return collapsed ? min(totalHeight, defaultHeight) : totalHeight
     }
 
     // MARK: Actions
 
     @objc func viewDidTapped(_ sender: Any) {
-        viewModel?.toggleCollpase()
-        delegate?.viewDidCollpaseChange(view: self)
+        if viewModel?.isFile == false {
+            viewModel?.toggleCollapse()
+            delegate?.viewDidCollapseChange(view: self)
+        }
 
         if let attachment = viewModel?.attachment {
             if attachment.titleLinkDownload {
@@ -114,5 +119,17 @@ final class ChatMessageTextView: UIView {
         if !containsGesture {
             addGestureRecognizer(tapGesture)
         }
+    }
+}
+
+// MARK: Themeable
+
+extension ChatMessageTextView {
+    override func applyTheme() {
+        super.applyTheme()
+        guard let theme = theme else { return }
+        viewLeftBorder.backgroundColor = viewModel?.color ?? theme.auxiliaryText
+        labelDescription.textColor = theme.auxiliaryText
+        labelTitle.textColor = theme.controlText
     }
 }

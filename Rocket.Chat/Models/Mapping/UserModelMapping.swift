@@ -24,17 +24,37 @@ extension User: ModelMappeable {
             self.name = name
         }
 
-        if let roles = values["roles"].array?.flatMap({ $0.string }) {
-            self.roles.removeAll()
-            self.roles.append(contentsOf: roles)
-        }
-
         if let status = values["status"].string {
             self.status = UserStatus(rawValue: status) ?? .offline
         }
 
         if let utcOffset = values["utcOffset"].double {
             self.utcOffset = utcOffset
+        }
+
+        if let emailsRaw = values["emails"].array {
+            let emails = emailsRaw.compactMap { emailRaw -> Email? in
+                let email = Email(value: [
+                    "email": emailRaw["address"].stringValue,
+                    "verified": emailRaw["verified"].boolValue
+                    ])
+
+                guard !email.email.isEmpty else { return nil }
+
+                return email
+            }
+
+            self.emails.removeAll()
+            self.emails.append(contentsOf: emails)
+        }
+
+        mapRoles(values["roles"])
+    }
+
+    func mapRoles(_ values: JSON) {
+        if let roles = values.array?.compactMap({ $0.string }) {
+            self.roles.removeAll()
+            self.roles.append(contentsOf: roles)
         }
     }
 }

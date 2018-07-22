@@ -7,12 +7,13 @@
 //
 
 import UIKit
-import SDWebImage
 
-fileprivate typealias EmojiCategory = (name: String, emojis: [Emoji])
+private typealias EmojiCategory = (name: String, emojis: [Emoji])
 
-class EmojiPicker: UIView, RCEmojiKitLocalizable {
+final class EmojiPicker: UIView, RCEmojiKitLocalizable {
     static let defaults = UserDefaults(suiteName: "EmojiPicker")
+
+    var isPopover = false
 
     var customEmojis: [Emoji] = []
     var customCategory: (name: String, emojis: [Emoji]) {
@@ -55,6 +56,7 @@ class EmojiPicker: UIView, RCEmojiKitLocalizable {
         (name: "symbols", emojis: Emojione.symbols),
         (name: "flags", emojis: Emojione.flags)
     ]
+
     fileprivate var searchedCategories: [(name: String, emojis: [Emoji])] = []
     fileprivate func searchCategories(string: String) -> [EmojiCategory] {
         return ([customCategory] + defaultCategories).map {
@@ -165,8 +167,7 @@ class EmojiPicker: UIView, RCEmojiKitLocalizable {
         emojisCollectionView.dataSource = self
         emojisCollectionView.delegate = self
 
-        let emojiCellNib = UINib(nibName: "EmojiCollectionViewCell", bundle: nil)
-        emojisCollectionView.register(emojiCellNib, forCellWithReuseIdentifier: "EmojiCollectionViewCell")
+        emojisCollectionView.register(EmojiCollectionViewCell.self, forCellWithReuseIdentifier: "EmojiCollectionViewCell")
         emojisCollectionView.register(EmojiPickerSectionHeaderView.self, forSupplementaryViewOfKind: UICollectionElementKindSectionHeader, withReuseIdentifier: "EmojiPickerSectionHeaderView")
 
         if let layout = emojisCollectionView.collectionViewLayout as? UICollectionViewFlowLayout {
@@ -195,6 +196,11 @@ class EmojiPicker: UIView, RCEmojiKitLocalizable {
         super.didMoveToSuperview()
         setupCategoriesView()
         setupCollectionView()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        applyTheme()
     }
 }
 
@@ -225,12 +231,12 @@ extension EmojiPicker: UICollectionViewDataSource {
         let emoji = currentCategories[indexPath.section].emojis[indexPath.row]
 
         if let file = emoji.imageUrl {
-            cell.emojiView.emojiImageView.sd_setImage(with: URL(string: file), completed: nil)
-        } else if emoji.supportsTones, let currentTone = currentSkinTone.name {
-            let shortname = String(emoji.shortname.dropLast()) + "_\(currentTone):"
-            cell.emojiView.emojiLabel.text = Emojione.transform(string: shortname)
+            cell.emoji = .custom(URL(string: file))
         } else {
-            cell.emojiView.emojiLabel.text = Emojione.transform(string: emoji.shortname)
+            var toneModifier = ""
+            if emoji.supportsTones, let currentTone = currentSkinTone.name { toneModifier = "_\(currentTone)" }
+            let searchString = String(emoji.shortname.dropFirst().dropLast()) + toneModifier
+            cell.emoji = .standard(Emojione.values[searchString])
         }
 
         return cell
@@ -292,9 +298,13 @@ extension EmojiPicker: UITabBarDelegate {
         emojisCollectionView.reloadData()
         emojisCollectionView.layoutIfNeeded()
 
+        let numberOfCells = emojisCollectionView.numberOfItems(inSection: index)
         let indexPath = IndexPath(row: 1, section: index)
-        emojisCollectionView.scrollToItem(at: indexPath, at: .top, animated: false)
-        emojisCollectionView.setContentOffset(emojisCollectionView.contentOffset.applying(CGAffineTransform(translationX: 0.0, y: -36.0)), animated: false)
+
+        if numberOfCells > 0 {
+            emojisCollectionView.scrollToItem(at: indexPath, at: .top, animated: false)
+            emojisCollectionView.setContentOffset(emojisCollectionView.contentOffset.applying(CGAffineTransform(translationX: 0.0, y: -36.0)), animated: false)
+        }
     }
 }
 
@@ -335,5 +345,14 @@ private class EmojiPickerSectionHeaderView: UICollectionReusableView {
 
     required init?(coder aDecoder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+}
+
+// MARK: Themeable
+
+extension EmojiPicker {
+    override func applyTheme() {
+        super.applyTheme()
+        skinToneButton.backgroundColor = currentSkinTone.color
     }
 }

@@ -8,24 +8,18 @@
 
 import UIKit
 import FLAnimatedImage
-import SDWebImage
-
-let avatarColors: [UInt] = [
-    0xF44336, 0xE91E63, 0x9C27B0, 0x673AB7, 0x3F51B5,
-    0x2196F3, 0x03A9F4, 0x00BCD4, 0x009688, 0x4CAF50,
-    0x8BC34A, 0xCDDC39, 0xFFC107, 0xFF9800, 0xFF5722,
-    0x795548, 0x9E9E9E, 0x607D8B]
+import Nuke
 
 final class AvatarView: UIView {
 
+    var avatarPlaceholder: UIImage?
     var imageURL: URL? {
         didSet {
             if let imageURL = imageURL {
-                let options: SDWebImageOptions = [.retryFailed, .scaleDownLargeImages, .highPriority]
-                imageView?.sd_setImage(with: imageURL, placeholderImage: nil, options: options) { [weak self] (_, error, _, _) in
+                ImageManager.loadImage(with: imageURL, into: imageView) { [weak self] _, error in
                     guard error == nil else { return }
 
-                    self?.labelInitials.text = ""
+                    self?.labelInitials.text = nil
                     self?.backgroundColor = UIColor.clear
                 }
             }
@@ -35,6 +29,14 @@ final class AvatarView: UIView {
     var avatarURL: URL? {
         didSet {
             if avatarURL != nil {
+                updateAvatar()
+            }
+        }
+    }
+
+    var subscription: Subscription? {
+        didSet {
+            if subscription != nil {
                 updateAvatar()
             }
         }
@@ -56,9 +58,15 @@ final class AvatarView: UIView {
         }
     }
 
-    func updateAvatar() {
-        setAvatarWithInitials()
+    var username: String? {
+        didSet {
+            if username != nil {
+                updateAvatar()
+            }
+        }
+    }
 
+    func updateAvatar() {
         if let emoji = emoji {
             let emojiCharacter = Emojione.transform(string: emoji)
 
@@ -70,9 +78,18 @@ final class AvatarView: UIView {
 
             backgroundColor = .clear
         } else if let avatarURL = avatarURL {
-            self.imageURL = avatarURL
-        } else if let avatarURL = user?.avatarURL() {
-            self.imageURL = avatarURL
+            imageURL = avatarURL
+        } else if let user = user {
+            setAvatarWithInitials(forUsername: user.username)
+
+            if let avatarURL = user.avatarURL() {
+                imageURL = avatarURL
+            }
+        } else if let avatarURL = subscription?.avatarURL() {
+            setAvatarWithInitials(forUsername: subscription?.name)
+            imageURL = avatarURL
+        } else if let username = username, let avatarURL = User.avatarURL(forUsername: username) {
+            imageURL = avatarURL
         }
     }
 
@@ -118,40 +135,57 @@ final class AvatarView: UIView {
         return ""
     }
 
-    private func setAvatarWithInitials() {
-        guard let user = user, !user.isInvalidated else {
-            labelInitials?.text = "?"
-            backgroundColor = .black
-            return
-        }
-
-        let username = user.username ?? "?"
-        var initials = ""
-        var color: UInt = 0x000000
+    private func setAvatarWithInitials(forUsername username: String?) {
+        let username = username ?? "?"
+        var initials = "?"
+        var color = UIColor.black
 
         if username == "?" {
             initials = username
-            color = 0x000000
         } else {
-            let position = username.count % avatarColors.count
-            color = avatarColors[position]
+            let position = username.count % UIColor.avatarColors.count
+            color = UIColor.avatarColors[position]
             initials = initialsFor(username)
         }
 
         labelInitials?.text = initials.uppercased()
-        backgroundColor = UIColor(rgb: color, alphaVal: 1)
+        backgroundColor = color
+    }
+
+    func refreshCurrentAvatar(withCachedData data: Data, completion: (() -> Void)? = nil) {
+        guard let url = imageURL else {
+            return
+        }
+
+        ImageManager.dataCache?.storeData(data, for: url.absoluteString)
+        ImageManager.memoryCache.removeResponse(
+            for: ImageRequest(
+                url: url
+            )
+        )
+
+        completion?()
     }
 
     func prepareForReuse() {
+        avatarPlaceholder = nil
         avatarURL = nil
         imageURL = nil
         user = nil
+        subscription = nil
         emoji = nil
 
         imageView.image = nil
         imageView.animatedImage = nil
-
         labelInitials.text = ""
     }
 
+}
+
+// MARK: Themeable
+
+extension AvatarView {
+    override func applyTheme() {
+        labelInitials?.textColor = .white
+    }
 }

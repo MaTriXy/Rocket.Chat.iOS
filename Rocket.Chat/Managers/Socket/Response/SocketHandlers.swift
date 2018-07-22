@@ -9,7 +9,6 @@
 import Foundation
 import Starscream
 import SwiftyJSON
-import Crashlytics
 
 extension SocketManager {
 
@@ -22,30 +21,29 @@ extension SocketManager {
 
         switch message {
         case .connected:
-            return handleConnectionMessage(result, socket: socket)
+            return self.handleConnectionMessage(result, socket: socket)
         case .ping:
-            return handlePingMessage(result, socket: socket)
+            return self.handlePingMessage(result, socket: socket)
         case .changed, .added, .removed:
-            return handleModelUpdates(result, socket: socket)
+            return self.handleModelUpdates(result, socket: socket)
         case .updated, .unknown:
             break
         case .error:
-            handleError(result, socket: socket)
+            self.handleError(result, socket: socket)
         }
 
         // Call completion block
         guard let identifier = result.id,
-              let completion = queue[identifier] else { return }
+            let completion = self.queue[identifier] else { return }
         let messageCompletion = completion as MessageCompletion
         messageCompletion(result)
     }
 
     fileprivate func handleConnectionMessage(_ result: SocketResponse, socket: WebSocket) {
-        internalConnectionHandler?(socket, true)
-        internalConnectionHandler = nil
-
-        for (_, handler) in connectionHandlers {
-            handler.socketDidConnect(socket: self)
+        DispatchQueue.main.async {
+            self.internalConnectionHandler?(socket, true)
+            self.internalConnectionHandler = nil
+            self.state = .connected
         }
     }
 
@@ -54,12 +52,43 @@ extension SocketManager {
     }
 
     fileprivate func handleError(_ result: SocketResponse, socket: WebSocket) {
-        // Do nothing?
         let error = SocketError(json: result.result["error"])
+        switch error.error {
+        case .invalidSession:
+            guard !isPresentingInvalidSessionAlert else {
+                return
+            }
 
-        for (_, handler) in connectionHandlers {
-            handler.socketDidReturnError(socket: self, error: error)
+            let invalidSessionAlert = UIAlertController(
+                title: localized("alert.socket_error.invalid_user.title"),
+                message: localized("alert.socket_error.invalid_user.message"),
+                preferredStyle: .alert
+            )
+
+            invalidSessionAlert.addAction(UIAlertAction(title: localized("global.ok"), style: .default, handler: { _ in
+                self.isPresentingInvalidSessionAlert = false
+                AppManager.reloadApp()
+            }))
+
+            func present() {
+                isPresentingInvalidSessionAlert = true
+
+                let alertWindow = UIWindow.topWindow
+                alertWindow.windowLevel = UIWindowLevelAlert + 1
+                alertWindow.rootViewController?.present(invalidSessionAlert, animated: true)
+            }
+
+            API.current()?.client(PushClient.self).deletePushToken()
+
+            AuthManager.logout {
+                AuthManager.recoverAuthIfNeeded()
+                DispatchQueue.main.async(execute: present)
+            }
+        default:
+            break
         }
+
+        Log.debug("[ERROR][SocketManager]: \(error.message)")
     }
 
     fileprivate func handleEventSubscription(_ result: SocketResponse, socket: WebSocket) {

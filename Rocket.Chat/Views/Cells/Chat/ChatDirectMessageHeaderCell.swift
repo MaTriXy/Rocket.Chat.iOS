@@ -8,19 +8,18 @@
 
 import UIKit
 
-class ChatDirectMessageHeaderCell: UICollectionViewCell {
+final class ChatDirectMessageHeaderCell: UICollectionViewCell {
 
     static let minimumHeight = CGFloat(240)
     static let identifier = "ChatDirectMessageHeaderCell"
 
     var subscription: Subscription? {
         didSet {
-            guard let user = subscription?.directMessageUser else { return }
-            labelUser.text = user.displayName()
-            avatarView.user = user
+            guard subscription?.directMessageUser != nil else {
+                return fetchUser()
+            }
 
-            let startText = localized("chat.dm.start_conversation")
-            labelStartConversation.text = String(format: startText, user.displayName())
+            updateUser()
         }
     }
 
@@ -50,6 +49,34 @@ class ChatDirectMessageHeaderCell: UICollectionViewCell {
         avatarView.user = nil
         labelUser.text = ""
         labelStartConversation.text = ""
+    }
+
+    func updateUser() {
+        guard let user = subscription?.directMessageUser else {
+            labelUser.text = ""
+            labelStartConversation.text = ""
+            return
+        }
+
+        labelUser.text = user.displayName()
+        avatarView.user = user
+
+        let startText = localized("chat.dm.start_conversation")
+        labelStartConversation.text = String(format: startText, user.displayName())
+    }
+
+    func fetchUser() {
+        guard
+            let userId = subscription?.otherUserId,
+            !userId.isEmpty
+        else {
+            updateUser()
+            return
+        }
+
+        User.fetch(by: .userId(userId), completion: { _ in
+            self.updateUser()
+        })
     }
 
 }

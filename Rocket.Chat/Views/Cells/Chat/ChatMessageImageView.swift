@@ -7,7 +7,6 @@
 //
 
 import UIKit
-import SDWebImage
 import FLAnimatedImage
 
 protocol ChatMessageImageViewProtocol: class {
@@ -18,6 +17,7 @@ final class ChatMessageImageView: ChatMessageAttachmentView {
     override static var defaultHeight: CGFloat {
         return 250
     }
+
     var isLoadable = true
 
     weak var delegate: ChatMessageImageViewProtocol?
@@ -34,6 +34,7 @@ final class ChatMessageImageView: ChatMessageAttachmentView {
 
     @IBOutlet weak var labelTitle: UILabel!
     @IBOutlet weak var detailText: UILabel!
+    @IBOutlet weak var detailTextIndicator: UILabel!
     @IBOutlet weak var detailTextHeightConstraint: NSLayoutConstraint!
     @IBOutlet weak var fullHeightConstraint: NSLayoutConstraint!
     @IBOutlet weak var activityIndicatorImageView: UIActivityIndicatorView!
@@ -58,11 +59,12 @@ final class ChatMessageImageView: ChatMessageAttachmentView {
             detailText.text = ""
             labelTitle.text = attachment.title + " (" + localized("alert.insecure_image.title") + ")"
             imageView.contentMode = UIViewContentMode.center
-            imageView.sd_setImage(with: nil, placeholderImage: UIImage(named: "Resource Unavailable"))
+            imageView.image =  UIImage(named: "Resource Unavailable")
             return nil
         }
         labelTitle.text = attachment.title
         detailText.text = attachment.descriptionText
+        detailTextIndicator.isHidden = attachment.descriptionText?.isEmpty ?? true
         let fullHeight = ChatMessageImageView.heightFor(withText: attachment.descriptionText)
         fullHeightConstraint.constant = fullHeight
         detailTextHeightConstraint.constant = fullHeight - ChatMessageImageView.defaultHeight
@@ -80,22 +82,19 @@ final class ChatMessageImageView: ChatMessageAttachmentView {
         }
 
         activityIndicatorImageView.startAnimating()
-
-        let options: SDWebImageOptions = [.retryFailed, .scaleDownLargeImages]
-        imageView.sd_setImage(with: imageURL, placeholderImage: nil, options: options, completed: { [weak self] _, _, _, _ in
+        ImageManager.loadImage(with: imageURL, into: imageView) { [weak self] _, _ in
             self?.activityIndicatorImageView.stopAnimating()
-        })
+        }
     }
 
     @objc func didTapView() {
         if isLoadable {
             delegate?.openImageFromCell(attachment: attachment, thumbnail: imageView)
         } else {
-            guard let imageURL = attachment.fullImageURL() else {
-                return
-            }
+            guard let imageURL = attachment.fullImageURL() else { return }
+
             Ask(key: "alert.insecure_image", buttonB: localized("chat.message.open_browser"), handlerB: { _ in
-                ChatViewController.shared?.openURL(url: imageURL)
+                 MainSplitViewController.chatViewController?.openURL(url: imageURL)
             }).present()
         }
     }

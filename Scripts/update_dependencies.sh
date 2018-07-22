@@ -2,9 +2,6 @@
 
 set -e
 
-# Swiftlint
-brew install swiftlint
-
 # Update all external dependencies
-pod repo update
-pod install
+curl https://cocoapods-specs.circleci.com/fetch-cocoapods-repo-from-s3.sh | bash -s cf
+bundle exec pod install

@@ -25,6 +25,7 @@ extension Message: ModelMappeable {
         self.internalType = values["t"].string ?? "t"
         self.role = values["role"].stringValue
         self.pinned = values["pinned"].bool ?? false
+        self.unread = values["unread"].bool ?? false
         self.groupable = values["groupable"].bool ?? true
 
         if let createdAt = values["ts"]["$date"].double {
@@ -58,13 +59,19 @@ extension Message: ModelMappeable {
             self.userBlocked = isBlocked
         }
 
+        // Starred
+        if let starred = values["starred"].array {
+            self.starred.removeAll()
+            starred.compactMap({ $0["_id"].string }).forEach(self.starred.append)
+        }
+
         // Attachments
         if let attachments = values["attachments"].array {
             self.attachments.removeAll()
 
-            for attachment in attachments {
+            attachments.forEach {
                 let obj = Attachment()
-                obj.map(attachment, realm: realm)
+                obj.map($0, realm: realm)
                 self.attachments.append(obj)
             }
         }
@@ -105,7 +112,7 @@ extension Message: ModelMappeable {
         // Reactions
         self.reactions.removeAll()
         if let reactions = values["reactions"].dictionary {
-            reactions.enumerated().flatMap {
+            reactions.enumerated().compactMap {
                 let reaction = MessageReaction()
                 reaction.map(emoji: $1.key, json: $1.value)
                 return reaction
