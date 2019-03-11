@@ -7,10 +7,11 @@
 //
 
 import UIKit
+import RocketChatViewController
 
 protocol ChatMessageTextViewProtocol: class {
-    func viewDidCollapseChange(view: UIView)
-    func openFileFromCell(attachment: Attachment)
+    func viewDidCollapseChange(viewModel: AnyChatItem)
+    func openFileFromCell(attachment: UnmanagedAttachment)
 }
 
 final class ChatMessageTextView: UIView {
@@ -55,7 +56,7 @@ final class ChatMessageTextView: UIView {
 
     private func updateLabels() {
         labelTitle.text = viewModel?.title
-        labelDescription.attributedText = NSMutableAttributedString(string: viewModel?.text ?? "").transformMarkdown()
+        labelDescription.attributedText = NSMutableAttributedString(string: viewModel?.text ?? "").transformMarkdown(with: self.theme)
 
         if viewModel?.title.count == 0 {
             labelTitleHeightConstraint.constant = 0
@@ -80,12 +81,12 @@ final class ChatMessageTextView: UIView {
         }
     }
 
-    static func heightFor(collapsed: Bool, withText text: String?, isFile: Bool = false) -> CGFloat {
+    static func heightFor(with availableWidth: CGFloat, collapsed: Bool, text: String?, isFile: Bool = false) -> CGFloat {
         guard !isFile else {
             return defaultHeight
         }
 
-        let width = UIScreen.main.bounds.size.width - 73
+        let width = availableWidth - 73
         var textHeight: CGFloat = 1
 
         if let text = text, text.count > 0 {
@@ -104,12 +105,12 @@ final class ChatMessageTextView: UIView {
     @objc func viewDidTapped(_ sender: Any) {
         if viewModel?.isFile == false {
             viewModel?.toggleCollapse()
-            delegate?.viewDidCollapseChange(view: self)
+//            delegate?.viewDidCollapseChange(view: self)
         }
 
         if let attachment = viewModel?.attachment {
-            if attachment.titleLinkDownload {
-                delegate?.openFileFromCell(attachment: attachment)
+            if attachment.titleLinkDownload, let unmanaged = UnmanagedAttachment(attachment) {
+                delegate?.openFileFromCell(attachment: unmanaged)
             }
         }
     }

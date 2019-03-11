@@ -10,13 +10,10 @@ import Foundation
 
 final class ChatTitleViewModel {
 
-    internal var user: User?
-    var subscription: Subscription? {
+    internal var user: UnmanagedUser?
+    var subscription: UnmanagedSubscription? {
         didSet {
-            guard
-                let subscription = subscription,
-                !subscription.isInvalidated
-            else {
+            guard let subscription = subscription else {
                 return
             }
 
@@ -25,7 +22,7 @@ final class ChatTitleViewModel {
     }
 
     var title: String {
-        return subscription?.displayName() ?? ""
+        return subscription?.displayName ?? ""
     }
 
     var iconColor: UIColor {

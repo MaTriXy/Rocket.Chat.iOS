@@ -168,6 +168,11 @@ extension SocketManager {
 
             infoClient.fetchInfo(realm: currentRealm, completion: {
                 SubscriptionManager.updateSubscriptions(auth, realm: currentRealm) {
+                    let validAuth = auth.validated() ?? AuthManager.isAuthenticated(realm: currentRealm)
+                    guard let auth = validAuth else {
+                        return
+                    }
+
                     AuthSettingsManager.updatePublicSettings(auth)
 
                     UserManager.userDataChanges()
@@ -178,6 +183,7 @@ extension SocketManager {
                     PermissionManager.changes()
                     infoClient.fetchPermissions(realm: currentRealm)
                     CustomEmojiManager.sync(realm: currentRealm)
+                    MessageManager.subscribeSystemMessages()
 
                     commandsClient.fetchCommands(realm: currentRealm)
 
